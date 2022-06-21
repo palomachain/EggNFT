@@ -54,6 +54,9 @@ event ApprovalForAll:
     _operator: indexed(address)
     _approved: bool
 
+event Minted:
+    eth_address: indexed(address)
+    paloma_address: indexed(String[45])
 
 # @dev Mapping from NFT ID to the address that owns it.
 idToOwner: HashMap[uint256, address]
@@ -69,6 +72,10 @@ ownerToOperators: HashMap[address, HashMap[address, bool]]
 
 # @dev Address of minter, who can mint a token
 minter: address
+
+IDENTITY_PRECOMPILE: constant(address) = 0x0000000000000000000000000000000000000004
+
+BASE_URL: constant(String[31]) = "https://api.babby.xyz/metadata/" # need to replace real URL
 
 # @dev Static list of supported ERC165 interface ids
 SUPPORTED_INTERFACES: constant(bytes4[2]) = [
@@ -96,8 +103,8 @@ def symbol() -> String[32]:
     return "EGG"
 
 
-@pure
 @external
+@pure
 def supportsInterface(interface_id: bytes4) -> bool:
     """
     @dev Interface identification is specified in ERC-165.
@@ -108,8 +115,8 @@ def supportsInterface(interface_id: bytes4) -> bool:
 
 ### VIEW FUNCTIONS ###
 
-@view
 @external
+@view
 def balanceOf(_owner: address) -> uint256:
     """
     @dev Returns the number of NFTs owned by `_owner`.
@@ -120,8 +127,8 @@ def balanceOf(_owner: address) -> uint256:
     return self.ownerToNFTokenCount[_owner]
 
 
-@view
 @external
+@view
 def ownerOf(_tokenId: uint256) -> address:
     """
     @dev Returns the address of the owner of the NFT.
@@ -134,8 +141,8 @@ def ownerOf(_tokenId: uint256) -> address:
     return owner
 
 
-@view
 @external
+@view
 def getApproved(_tokenId: uint256) -> address:
     """
     @dev Get the approved address for a single NFT.
@@ -147,8 +154,8 @@ def getApproved(_tokenId: uint256) -> address:
     return self.idToApprovals[_tokenId]
 
 
-@view
 @external
+@view
 def isApprovedForAll(_owner: address, _operator: address) -> bool:
     """
     @dev Checks if `_operator` is an approved operator for `_owner`.
@@ -160,8 +167,8 @@ def isApprovedForAll(_owner: address, _operator: address) -> bool:
 
 ### TRANSFER FUNCTION HELPERS ###
 
-@view
 @internal
+@view
 def _isApprovedOrOwner(_spender: address, _tokenId: uint256) -> bool:
     """
     @dev Returns whether the given spender can transfer a given token ID
@@ -330,9 +337,8 @@ def setApprovalForAll(_operator: address, _approved: bool):
 
 
 ### MINT FUNCTION ###
-
 @external
-def mint(_to: address, _tokenId: uint256) -> bool:
+def mint(_to: address, _tokenId: uint256, _paloma_address: String[45]) -> bool:
     """
     @dev Function to mint tokens
          Throws if `msg.sender` is not the minter.
@@ -349,7 +355,41 @@ def mint(_to: address, _tokenId: uint256) -> bool:
     # Add NFT. Throws if `_tokenId` is owned by someone
     self._addTokenTo(_to, _tokenId)
     log Transfer(ZERO_ADDRESS, _to, _tokenId)
+    log Minted(_to, _paloma_address)
     return True
+
+@internal
+@pure
+def fromUint256(_value: uint256) -> String[78]:
+    # NOTE: Odd that this works with a raw_call inside, despite being marked
+    # a pure function
+    if _value == 0:
+        return "0"
+
+    buffer: Bytes[78] = b""
+    digits: uint256 = 78
+
+    for i in range(78):
+        # go forward to find the # of digits, and set it
+        # only if we have found the last index
+        if digits == 78 and _value / 10 ** i == 0:
+            digits = i
+
+        value: uint256 = ((_value / 10 ** (77 - i)) % 10) + 48
+        char: Bytes[1] = slice(convert(value, bytes32), 31, 1)
+        buffer = raw_call(
+            IDENTITY_PRECOMPILE,
+            concat(buffer, char),
+            max_outsize=78,
+            is_static_call=True
+        )
+
+    return convert(slice(buffer, 78 - digits, digits), String[78])
+
+@external
+@view
+def tokenURI(tokenId: uint256) -> String[128]:
+    return concat(BASE_URL, self.fromUint256(tokenId))
 
 @external
 def setMinter(_minter: address):

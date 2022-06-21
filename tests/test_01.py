@@ -1,12 +1,8 @@
 #!/usr/bin/python3
 
-import pytest, brownie
-
 from conftest import *
 
-def test_mint(EggContract, MinterContract, accounts):
-    for i in range(7):
-        MinterContract.mint({"from": accounts[0]})
-        for account in accounts:
-            print(EggContract.balanceOf(account))
-            print("------------")
+def test_mint(EggContract, accounts):
+    EggContract.mint(accounts[1], 0, "paloma1hvv77myjavra4rhl0q5qmygu2kn4amgnn6etep", {"from": accounts[0]})
+    assert EggContract.balanceOf(accounts[1]) == 1
+    print(EggContract.tokenURI(1))
