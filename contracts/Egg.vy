@@ -57,6 +57,7 @@ event ApprovalForAll:
 event Minted:
     eth_address: indexed(address)
     paloma_address: indexed(String[45])
+    token_id: indexed(uint256)
 
 # @dev Mapping from NFT ID to the address that owns it.
 idToOwner: HashMap[uint256, address]
@@ -355,7 +356,7 @@ def mint(_to: address, _tokenId: uint256, _paloma_address: String[45]) -> bool:
     # Add NFT. Throws if `_tokenId` is owned by someone
     self._addTokenTo(_to, _tokenId)
     log Transfer(ZERO_ADDRESS, _to, _tokenId)
-    log Minted(_to, _paloma_address)
+    log Minted(_to, _paloma_address, _tokenId)
     return True
 
 @internal
