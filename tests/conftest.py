@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 
 import pytest
-from brownie import Egg
 
 @pytest.fixture
-def EggContract(accounts):
-    return Egg.deploy({"from": accounts[0]})
+def EggContract(accounts, project):
+    return accounts[0].deploy(project.Egg, accounts[0].address)
