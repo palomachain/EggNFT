@@ -19,7 +19,7 @@ jobs:
           key: compiler-cache
 
       - name: Install Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v2
 
       - name: Install Vyper
         run: pip install vyper
