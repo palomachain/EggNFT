@@ -1,4 +1,4 @@
-# @version 0.3.4
+# @version 0.3.6
 
 # @dev Implementation of ERC-721 non-fungible token standard.
 # @author Volume Finance
@@ -59,6 +59,10 @@ event Minted:
     paloma_address: indexed(String[64])
     token_id: indexed(uint256)
 
+event SetMinter:
+    new_minter: indexed(address)
+    old_minter: indexed(address)
+
 # @dev Mapping from NFT ID to the address that owns it.
 idToOwner: HashMap[uint256, address]
 
@@ -72,9 +76,9 @@ ownerToNFTokenCount: HashMap[address, uint256]
 ownerToOperators: HashMap[address, HashMap[address, bool]]
 
 # @dev Address of minter, who can mint a token
-MINTER: immutable(address)
+minter: public(address)
 
-BASE_URL: constant(String[31]) = "https://api.babby.xyz/metadata/" # need to replace real URL
+BASE_URL: constant(String[38]) = "https://eggs.palomachain.com/metadata/"
 
 # @dev Static list of supported ERC165 interface ids
 SUPPORTED_INTERFACES: constant(bytes4[2]) = [
@@ -85,12 +89,12 @@ SUPPORTED_INTERFACES: constant(bytes4[2]) = [
 ]
 
 @external
-def __init__(minter: address):
+def __init__(_minter: address):
     """
     @dev Contract constructor.
     """
-    MINTER = minter
-
+    self.minter = _minter
+    log SetMinter(_minter, ZERO_ADDRESS)
 
 @external
 def name() -> String[64]:
@@ -99,13 +103,7 @@ def name() -> String[64]:
 
 @external
 def symbol() -> String[32]:
-    return "EGG"
-
-
-@external
-@pure
-def minter() -> address:
-    return MINTER
+    return "PALOMAEGG"
 
 
 @external
@@ -354,7 +352,7 @@ def mint(_to: address, _tokenId: uint256, _paloma_address: String[64]) -> bool:
     @return A boolean that indicates if the operation was successful.
     """
     # Throws if `msg.sender` is not the minter
-    assert msg.sender == MINTER
+    assert msg.sender == self.minter
     # Throws if `_to` is zero address
     assert _to != ZERO_ADDRESS
     # Add NFT. Throws if `_tokenId` is owned by someone
@@ -365,6 +363,13 @@ def mint(_to: address, _tokenId: uint256, _paloma_address: String[64]) -> bool:
 
 
 @external
+def set_minter(_minter: address):
+    assert msg.sender == self.minter
+    self.minter = _minter
+    log SetMinter(_minter, msg.sender)
+
+
+@external
 @view
-def tokenURI(tokenId: uint256) -> String[128]:
+def tokenURI(tokenId: uint256) -> String[116]:
     return concat(BASE_URL, uint2str(tokenId))

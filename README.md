@@ -3,7 +3,8 @@
 ## ApeWorx installation
 
 ```sh
-pipx install eth-ape infura alchemy vyper
+pipx install eth-ape
+ape plugins install infura vyper etherscan
 ```
 
 ## Test
@@ -19,7 +20,7 @@ ape accounts import deployer_account
 ```
 
 ## Deploy on mainnet
-
+Edit Compass-EVM contract address in `scripts/deploy.py`.
 ```sh
 ape run deploy --network :mainnet:infura
 ```
