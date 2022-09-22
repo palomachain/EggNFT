@@ -1,8 +1,7 @@
 # @version 0.3.6
 
-# @dev Implementation of ERC-721 non-fungible token standard.
+# @dev Implementation of ERC-721 Enumerable  standard
 # @author Volume Finance
-# Modified from: https://github.com/vyperlang/vyper/blob/2adc34ffd3bee8b6dee90f552bbd9bb844509e19/examples/tokens/ERC721.vy
 
 from vyper.interfaces import ERC165
 from vyper.interfaces import ERC721
@@ -64,16 +63,24 @@ event SetMinter:
     old_minter: indexed(address)
 
 # @dev Mapping from NFT ID to the address that owns it.
-idToOwner: HashMap[uint256, address]
+id_to_owner: HashMap[uint256, address]
 
 # @dev Mapping from NFT ID to approved address.
-idToApprovals: HashMap[uint256, address]
+id_to_approvals: HashMap[uint256, address]
 
 # @dev Mapping from owner address to count of his tokens.
-ownerToNFTokenCount: HashMap[address, uint256]
+owner_to_token_count: HashMap[address, uint256]
 
 # @dev Mapping from owner address to mapping of operator addresses.
-ownerToOperators: HashMap[address, HashMap[address, bool]]
+owner_to_operators: HashMap[address, HashMap[address, bool]]
+
+owned_tokens_index: HashMap[uint256, uint256]
+
+owned_tokens: HashMap[address, HashMap[uint256, uint256]]
+
+all_tokens: HashMap[uint256, uint256]
+
+totalSupply: public(uint256)
 
 # @dev Address of minter, who can mint a token
 minter: public(address)
@@ -81,11 +88,15 @@ minter: public(address)
 BASE_URL: constant(String[38]) = "https://eggs.palomachain.com/metadata/"
 
 # @dev Static list of supported ERC165 interface ids
-SUPPORTED_INTERFACES: constant(bytes4[2]) = [
+SUPPORTED_INTERFACES: constant(bytes4[4]) = [
     # ERC165 interface ID of ERC165
     0x01ffc9a7,
     # ERC165 interface ID of ERC721
     0x80ac58cd,
+    # ERC165 interface ID of ERC721Metadata
+    0x5b5e139f,
+    # ERC165 interface ID of ERC721Enumerable
+    0x780e9d63
 ]
 
 @external
@@ -94,15 +105,17 @@ def __init__(_minter: address):
     @dev Contract constructor.
     """
     self.minter = _minter
-    log SetMinter(_minter, ZERO_ADDRESS)
+    log SetMinter(_minter, empty(address))
 
 @external
-def name() -> String[64]:
+@pure
+def name() -> String[10]:
     return "Paloma Egg"
 
 
 @external
-def symbol() -> String[32]:
+@pure
+def symbol() -> String[9]:
     return "PALOMAEGG"
 
 
@@ -126,8 +139,8 @@ def balanceOf(_owner: address) -> uint256:
          Throws if `_owner` is the zero address. NFTs assigned to the zero address are considered invalid.
     @param _owner Address for whom to query the balance.
     """
-    assert _owner != ZERO_ADDRESS
-    return self.ownerToNFTokenCount[_owner]
+    assert _owner != empty(address)
+    return self.owner_to_token_count[_owner]
 
 
 @external
@@ -138,9 +151,9 @@ def ownerOf(_tokenId: uint256) -> address:
          Throws if `_tokenId` is not a valid NFT.
     @param _tokenId The identifier for an NFT.
     """
-    owner: address = self.idToOwner[_tokenId]
+    owner: address = self.id_to_owner[_tokenId]
     # Throws if `_tokenId` is not a valid NFT
-    assert owner != ZERO_ADDRESS
+    assert owner != empty(address)
     return owner
 
 
@@ -153,8 +166,8 @@ def getApproved(_tokenId: uint256) -> address:
     @param _tokenId ID of the NFT to query the approval of.
     """
     # Throws if `_tokenId` is not a valid NFT
-    assert self.idToOwner[_tokenId] != ZERO_ADDRESS
-    return self.idToApprovals[_tokenId]
+    assert self.id_to_owner[_tokenId] != empty(address)
+    return self.id_to_approvals[_tokenId]
 
 
 @external
@@ -165,14 +178,14 @@ def isApprovedForAll(_owner: address, _operator: address) -> bool:
     @param _owner The address that owns the NFTs.
     @param _operator The address that acts on behalf of the owner.
     """
-    return (self.ownerToOperators[_owner])[_operator]
+    return (self.owner_to_operators[_owner])[_operator]
 
 
 ### TRANSFER FUNCTION HELPERS ###
 
 @internal
 @view
-def _isApprovedOrOwner(_spender: address, _tokenId: uint256) -> bool:
+def is_approved_or_owner(_spender: address, _tokenId: uint256) -> bool:
     """
     @dev Returns whether the given spender can transfer a given token ID
     @param spender address of the spender to query
@@ -180,56 +193,71 @@ def _isApprovedOrOwner(_spender: address, _tokenId: uint256) -> bool:
     @return bool whether the msg.sender is approved for the given token ID,
         is an operator of the owner, or is the owner of the token
     """
-    owner: address = self.idToOwner[_tokenId]
+    owner: address = self.id_to_owner[_tokenId]
     spenderIsOwner: bool = owner == _spender
-    spenderIsApproved: bool = _spender == self.idToApprovals[_tokenId]
-    spenderIsApprovedForAll: bool = (self.ownerToOperators[owner])[_spender]
+    spenderIsApproved: bool = _spender == self.id_to_approvals[_tokenId]
+    spenderIsApprovedForAll: bool = (self.owner_to_operators[owner])[_spender]
     return (spenderIsOwner or spenderIsApproved) or spenderIsApprovedForAll
 
 
 @internal
-def _addTokenTo(_to: address, _tokenId: uint256):
+def add_token_to(_to: address, _tokenId: uint256):
     """
     @dev Add a NFT to a given address
          Throws if `_tokenId` is owned by someone.
     """
     # Throws if `_tokenId` is owned by someone
-    assert self.idToOwner[_tokenId] == ZERO_ADDRESS
+    assert self.id_to_owner[_tokenId] == empty(address)
     # Change the owner
-    self.idToOwner[_tokenId] = _to
+    self.id_to_owner[_tokenId] = _to
     # Change count tracking
-    self.ownerToNFTokenCount[_to] += 1
+    length: uint256 = self.owner_to_token_count[_to]
+
+    self.owned_tokens[_to][length] = _tokenId
+    self.owned_tokens_index[_tokenId] = length
+
+    self.owner_to_token_count[_to] = length + 1
 
 
 @internal
-def _removeTokenFrom(_from: address, _tokenId: uint256):
+def remove_token_from(_from: address, _tokenId: uint256):
     """
     @dev Remove a NFT from a given address
          Throws if `_from` is not the current owner.
     """
     # Throws if `_from` is not the current owner
-    assert self.idToOwner[_tokenId] == _from
+    assert self.id_to_owner[_tokenId] == _from
     # Change the owner
-    self.idToOwner[_tokenId] = ZERO_ADDRESS
+    self.id_to_owner[_tokenId] = empty(address)
     # Change count tracking
-    self.ownerToNFTokenCount[_from] -= 1
+
+    last_token_index: uint256 = self.owner_to_token_count[_from] - 1
+    token_index: uint256 = self.owned_tokens_index[_tokenId]
+    if token_index != last_token_index:
+        last_token_id: uint256 = self.owned_tokens[_from][last_token_index]
+        self.owned_tokens[_from][token_index] = last_token_id
+        self.owned_tokens_index[last_token_id] = token_index
+    self.owned_tokens_index[_tokenId] = 0
+    self.owned_tokens[_from][last_token_index] = 0
+
+    self.owner_to_token_count[_from] = last_token_index
 
 
 @internal
-def _clearApproval(_owner: address, _tokenId: uint256):
+def clear_approval(_owner: address, _tokenId: uint256):
     """
     @dev Clear an approval of a given address
          Throws if `_owner` is not the current owner.
     """
     # Throws if `_owner` is not the current owner
-    assert self.idToOwner[_tokenId] == _owner
-    if self.idToApprovals[_tokenId] != ZERO_ADDRESS:
+    assert self.id_to_owner[_tokenId] == _owner
+    if self.id_to_approvals[_tokenId] != empty(address):
         # Reset approvals
-        self.idToApprovals[_tokenId] = ZERO_ADDRESS
+        self.id_to_approvals[_tokenId] = empty(address)
 
 
 @internal
-def _transferFrom(_from: address, _to: address, _tokenId: uint256, _sender: address):
+def transfer_from(_from: address, _to: address, _tokenId: uint256, _sender: address):
     """
     @dev Exeute transfer of a NFT.
          Throws unless `msg.sender` is the current owner, an authorized operator, or the approved
@@ -239,15 +267,15 @@ def _transferFrom(_from: address, _to: address, _tokenId: uint256, _sender: addr
          Throws if `_tokenId` is not a valid NFT.
     """
     # Check requirements
-    assert self._isApprovedOrOwner(_sender, _tokenId)
+    assert self.is_approved_or_owner(_sender, _tokenId)
     # Throws if `_to` is the zero address
-    assert _to != ZERO_ADDRESS
+    assert _to != empty(address)
     # Clear approval. Throws if `_from` is not the current owner
-    self._clearApproval(_from, _tokenId)
+    self.clear_approval(_from, _tokenId)
     # Remove NFT. Throws if `_tokenId` is not a valid NFT
-    self._removeTokenFrom(_from, _tokenId)
+    self.remove_token_from(_from, _tokenId)
     # Add NFT
-    self._addTokenTo(_to, _tokenId)
+    self.add_token_to(_to, _tokenId)
     # Log the transfer
     log Transfer(_from, _to, _tokenId)
 
@@ -268,7 +296,7 @@ def transferFrom(_from: address, _to: address, _tokenId: uint256):
     @param _to The new owner.
     @param _tokenId The NFT to transfer.
     """
-    self._transferFrom(_from, _to, _tokenId, msg.sender)
+    self.transfer_from(_from, _to, _tokenId, msg.sender)
 
 
 @external
@@ -292,7 +320,7 @@ def safeTransferFrom(
     @param _tokenId The NFT to transfer.
     @param _data Additional data with no specified format, sent in call to `_to`.
     """
-    self._transferFrom(_from, _to, _tokenId, msg.sender)
+    self.transfer_from(_from, _to, _tokenId, msg.sender)
     if _to.is_contract: # check if `_to` is a contract address
         returnValue: bytes4 = ERC721Receiver(_to).onERC721Received(msg.sender, _from, _tokenId, _data)
         # Throws if transfer destination is a contract which does not implement 'onERC721Received'
@@ -309,17 +337,17 @@ def approve(_approved: address, _tokenId: uint256):
     @param _approved Address to be approved for the given NFT ID.
     @param _tokenId ID of the token to be approved.
     """
-    owner: address = self.idToOwner[_tokenId]
+    owner: address = self.id_to_owner[_tokenId]
     # Throws if `_tokenId` is not a valid NFT
-    assert owner != ZERO_ADDRESS
+    assert owner != empty(address)
     # Throws if `_approved` is the current owner
     assert _approved != owner
     # Check requirements
-    senderIsOwner: bool = self.idToOwner[_tokenId] == msg.sender
-    senderIsApprovedForAll: bool = (self.ownerToOperators[owner])[msg.sender]
+    senderIsOwner: bool = self.id_to_owner[_tokenId] == msg.sender
+    senderIsApprovedForAll: bool = (self.owner_to_operators[owner])[msg.sender]
     assert (senderIsOwner or senderIsApprovedForAll)
     # Set the approval
-    self.idToApprovals[_tokenId] = _approved
+    self.id_to_approvals[_tokenId] = _approved
     log Approval(owner, _approved, _tokenId)
 
 
@@ -335,7 +363,7 @@ def setApprovalForAll(_operator: address, _approved: bool):
     """
     # Throws if `_operator` is the `msg.sender`
     assert _operator != msg.sender
-    self.ownerToOperators[msg.sender][_operator] = _approved
+    self.owner_to_operators[msg.sender][_operator] = _approved
     log ApprovalForAll(msg.sender, _operator, _approved)
 
 
@@ -354,10 +382,15 @@ def mint(_to: address, _tokenId: uint256, _paloma_address: String[64]) -> bool:
     # Throws if `msg.sender` is not the minter
     assert msg.sender == self.minter
     # Throws if `_to` is zero address
-    assert _to != ZERO_ADDRESS
+    assert _to != empty(address)
     # Add NFT. Throws if `_tokenId` is owned by someone
-    self._addTokenTo(_to, _tokenId)
-    log Transfer(ZERO_ADDRESS, _to, _tokenId)
+    self.add_token_to(_to, _tokenId)
+
+    total_supply: uint256 = self.totalSupply
+    self.all_tokens[total_supply] = _tokenId
+    self.totalSupply = total_supply + 1
+
+    log Transfer(empty(address), _to, _tokenId)
     log Minted(_to, _paloma_address, _tokenId)
     return True
 
@@ -370,6 +403,20 @@ def set_minter(_minter: address):
 
 
 @external
-@view
+@pure
 def tokenURI(tokenId: uint256) -> String[116]:
     return concat(BASE_URL, uint2str(tokenId))
+
+### ERC721Enumerable FUNCTION ###
+@external
+@view
+def tokenOfOwnerByIndex(owner: address, index: uint256) -> uint256:
+    assert index < self.owner_to_token_count[owner]
+    return self.owned_tokens[owner][index]
+
+@external
+@view
+def tokenByIndex(index: uint256) -> uint256:
+    assert index < self.totalSupply
+    return self.all_tokens[index]
+
