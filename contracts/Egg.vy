@@ -1,4 +1,4 @@
-# @version 0.3.6
+# @version 0.3.7
 
 # @dev Implementation of ERC-721 Enumerable  standard
 # @author Volume Finance
@@ -99,24 +99,27 @@ SUPPORTED_INTERFACES: constant(bytes4[4]) = [
     0x780e9d63
 ]
 
+START_ID: immutable(uint256)
+
 @external
-def __init__(_minter: address):
+def __init__(_minter: address, start_id: uint256):
     """
     @dev Contract constructor.
     """
     self.minter = _minter
     log SetMinter(_minter, empty(address))
+    START_ID = start_id
 
 @external
 @pure
-def name() -> String[10]:
-    return "Paloma Egg"
+def name() -> String[15]:
+    return "Paloma Egg Hunt"
 
 
 @external
 @pure
-def symbol() -> String[9]:
-    return "PALOMAEGG"
+def symbol() -> String[3]:
+    return "PEH"
 
 
 @external
@@ -369,14 +372,12 @@ def setApprovalForAll(_operator: address, _approved: bool):
 
 ### MINT FUNCTION ###
 @external
-def mint(_to: address, _tokenId: uint256, _paloma_address: String[64]) -> bool:
+def mint(_to: address, _paloma_address: String[64]) -> bool:
     """
     @dev Function to mint tokens
          Throws if `msg.sender` is not the minter.
          Throws if `_to` is zero address.
-         Throws if `_tokenId` is owned by someone.
     @param _to The address that will receive the minted tokens.
-    @param _tokenId The token id to mint.
     @return A boolean that indicates if the operation was successful.
     """
     # Throws if `msg.sender` is not the minter
@@ -384,14 +385,14 @@ def mint(_to: address, _tokenId: uint256, _paloma_address: String[64]) -> bool:
     # Throws if `_to` is zero address
     assert _to != empty(address)
     # Add NFT. Throws if `_tokenId` is owned by someone
-    self.add_token_to(_to, _tokenId)
-
     total_supply: uint256 = self.totalSupply
-    self.all_tokens[total_supply] = _tokenId
+    new_id: uint256 = total_supply + START_ID
+    self.add_token_to(_to, new_id)
+    self.all_tokens[total_supply] = new_id
     self.totalSupply = total_supply + 1
 
-    log Transfer(empty(address), _to, _tokenId)
-    log Minted(_to, _paloma_address, _tokenId)
+    log Transfer(empty(address), _to, new_id)
+    log Minted(_to, _paloma_address, new_id)
     return True
 
 
